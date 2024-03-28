@@ -1,0 +1,108 @@
+
+name: $(BuildDefinitionName)_$(date:yyyyMMdd)$(rev:.r)
+ 
+trigger: none
+ 
+pr: none
+ 
+pool:
+  vmImage: 'macOS-latest'
+ 
+parameters:
+- name: Env
+  type: string
+  displayName: Select Environment
+  default: hmqa
+  values:
+  - dev
+  - qa
+  - hmqa
+  - uat
+  - stest
+ 
+variables:
+- ${{ if eq(parameters['Env'], 'dev') }}:
+  - group: MedAceCin-DEV-iOS
+- ${{ if eq(parameters['Env'], 'qa') }}:
+  - group: MedAceCin-QA-iOS
+- ${{ if eq(parameters['Env'], 'hmqa') }}:
+  - group: MedAceCin-HMQA-iOS
+- ${{ if eq(parameters['Env'], 'uat') }}:
+  - group: MedAceCin-UAT-iOS
+- ${{ if eq(parameters['Env'], 'stest') }}:
+  - group: MedAceCin-STEST-iOS
+ 
+stages :
+- stage: CI
+  displayName: CI-iOS
+  jobs:
+  - job: CI
+    displayName: CI-iOS
+    steps:
+ 
+    - task: InstallAppleCertificate@2
+      inputs:
+        certSecureFile: '$(P12FileName)'
+        certPwd: '$(P12password)'
+        keychain: 'temp'
+        deleteCert: true
+ 
+    - task: InstallAppleProvisioningProfile@1
+      inputs:
+        provisioningProfileLocation: 'secureFiles'
+        provProfileSecureFile: '$(provisioningProfile)'
+        removeProfile: true
+ 
+    - task: CocoaPods@0
+      inputs:
+        forceRepoUpdate: false
+ 
+    - task: Xcode@5
+      inputs:
+        actions: 'build'
+        scheme: '$(Scheme)'
+        sdk: '$(SDK)'
+        configuration: '$(Configuration)'
+        xcWorkspacePath: '**/MedAce.xcworkspace'
+        xcodeVersion: 'default'
+        packageApp: true
+        signingOption: 'manual'
+        signingIdentity: '$(APPLE_CERTIFICATE_SIGNING_IDENTITY)'
+        provisioningProfileUuid: '$(APPLE_PROV_PROFILE_UUID)'
+ 
+    - task: CopyFiles@2
+      inputs:
+        contents: '**/*.ipa'
+        targetFolder: '$(build.artifactStagingDirectory)'
+        overWrite: true
+ 
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathtoPublish: '$(build.artifactStagingDirectory)/output/$(sdk)/$(configuration)' 
+        artifactName: 'drop' 
+        publishLocation: 'Container'
+ 
+- stage: CD
+  displayName: CD-iOS
+  dependsOn: CI
+  jobs:
+  - job: CD
+    displayName: CD-iOS
+    steps:
+ 
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Pipeline Artifact'
+      inputs:
+        artifactName: drop
+        itemPattern: '**/*.ipa'
+        targetPath: '$(Build.SourcesDirectory)/output'
+    
+    - script: |
+        npm install -g firebase-tools
+        firebase --version
+      displayName: 'Install Firebase Tool'
+      continueOnError: true
+ 
+    - script: |
+        firebase appdistribution:distribute $(Build.SourcesDirectory)/output/*.ipa --app $(firebaseApp) --release-notes "From Azure Devops. Customer App build for $(Env) Environment" --token $(firebaseToken) --groups $(firebaseGroup)
+      displayName: 'Deploy on Firebase'
