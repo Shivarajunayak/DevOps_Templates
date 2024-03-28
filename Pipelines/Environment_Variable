@@ -1,0 +1,19 @@
+            $envName = "COVERITY_HOME"
+            $envValue = "D:\a\smart-filter-controller-embedded\smart-filter-controller-embedded\cov-analysis\bin"
+            $envScope = [System.EnvironmentVariableTarget]::Machine
+            
+            # Set the system environment variable
+            [System.Environment]::SetEnvironmentVariable($envName, $envValue, $envScope)
+
+            # Define the environment variable name
+            $envName = "COVERITY_HOME"
+            
+            # Retrieve the environment variable value
+            $envValue = [System.Environment]::GetEnvironmentVariable($envName, [System.EnvironmentVariableTarget]::Machine)
+            
+            # Check if the environment variable is set and its value matches the expected value
+            if ($envValue -eq "D:\a\smart-filter-controller-embedded\smart-filter-controller-embedded\cov-analysis\bin") {
+                Write-Host "Environment variable '$envName' is correctly set to '$envValue'."
+            } else {
+                Write-Host "Environment variable '$envName' is not set or has a different value."
+            }
