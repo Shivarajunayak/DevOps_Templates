@@ -1,0 +1,167 @@
+# A static code analysis by Coverity 
+
+variables:
+  COVERITY_STREAM_NAME: 'RDM - IntelliConnect'
+  COVERITY_TOOL_HOME: $(Agent.BuildDirectory)\cov-analysis
+  COVERITY_DOWNLOAD_URL: 'https://coverity.eaton.com/downloadFile.htm'
+  COVERITY_ANALYSIS_TOOL: 'cov-analysis-win64-2022.6.1.exe'
+  COVERITY_INTERMEDIATE_DIRECTORY: $(Agent.TempDirectory)\CoverityIntermediate
+  COVERITY_LOGS_DIRECTORY: $(Agent.TempDirectory)\CoverityLogs
+  SETUP_PATH: $(Agent.TempDirectory)\CoverityTemp
+  
+trigger: none
+pool:
+  vmImage: 'windows-2022'
+
+jobs:
+- job: CoverityScan
+  timeoutInMinutes: 180
+  variables:
+  - group: "Coverity Variables"
+  - name: authenticationKey
+    value: $[variables.COVERITY_AUTHKEY]
+  - name: userName
+    value: $[variables.COVERITY_USER]
+  
+  steps:
+  - script: |
+      df -h
+    displayName: 'Print Disk Space'
+
+  - script: |
+      md $(COVERITY_TOOL_HOME)
+      md $(SETUP_PATH)
+      rm -rf $(SETUP_PATH)\$(COVERITY_ANALYSIS_TOOL)
+    displayName: 'Initial Setup'
+
+  # Copy Coverity analysis package(s)
+  - script: |
+      curl -L --user $(userName):$(authenticationKey) $(COVERITY_DOWNLOAD_URL) --data-urlencode "fn=$(COVERITY_ANALYSIS_TOOL)" -o $(SETUP_PATH)\$(COVERITY_ANALYSIS_TOOL)
+      curl -L --user $(userName):$(authenticationKey) $(COVERITY_DOWNLOAD_URL) --data-urlencode "fn=license.dat" -o $(SETUP_PATH)\license.dat
+    displayName: 'Download Packages'
+
+  # Install Coverity
+  - script: >
+      $(SETUP_PATH)\$(COVERITY_ANALYSIS_TOOL) -q  
+      --installation.dir=$(COVERITY_TOOL_HOME)  
+      --license.region=0  
+      --license.agreement=agree  
+      --license.type.choice=0 
+      --license.cov.path=$(SETUP_PATH)\license.dat
+    displayName: 'Install Coverity'
+
+  - script: |
+      df -h
+    displayName: 'Print Disk Space'
+
+  # Clean installation files
+  - script: |
+      rm -rf $(SETUP_PATH)\$(COVERITY_ANALYSIS_TOOL)
+      rm -rf $(COVERITY_INTERMEDIATE_DIRECTORY)
+    displayName: 'Delete Coverity installation files'
+
+  - script: |
+      df -h
+    displayName: 'Print Disk Space'
+
+  # Delete unnecessary files to clear more space (around 1.5GB)
+  - script: |
+      rm -rf $(COVERITY_TOOL_HOME)\doc
+      rm -rf $(COVERITY_TOOL_HOME)\jars
+      rm -rf $(COVERITY_TOOL_HOME)\jdk17
+      rm -rf $(COVERITY_TOOL_HOME)\jre
+      rm -rf $(COVERITY_TOOL_HOME)\node
+      rm -rf $(COVERITY_TOOL_HOME)\bin\cov-internal-clang.exe
+      rm -rf $(COVERITY_TOOL_HOME)\bin\cov-internal-emit-clang.exe
+      rm -rf $(COVERITY_TOOL_HOME)\bin\"Coverity Point and Scan.exe"
+      rm -rf $(COVERITY_TOOL_HOME)\bin\cov-internal-js-fe.exe
+      rm -rf $(COVERITY_TOOL_HOME)\bin\cov-internal-php-fe.exe
+      rm -rf $(COVERITY_TOOL_HOME)\bin\cov-internal-ruby-fe.exe
+      rm -rf $(COVERITY_TOOL_HOME)\bin\cov-internal-python3-fe.exe
+    displayName: 'Delete unnecessary files to clear more space'
+
+  - script: |
+      df -h
+    displayName: 'Print Disk Space'
+
+  # Configure Coverity
+  - script: |
+      $(COVERITY_TOOL_HOME)\bin\cov-configure --cs
+    displayName: 'Configure Coverity'
+
+  - task: UseDotNet@2
+    inputs:
+      version: 6.0.405
+    displayName: 'Use .NET Core SDK 6.0.405'
+
+  - task: DotNetCoreCLI@2
+    inputs:
+      command: restore
+      projects: Rdm.sln
+      feedsToUse: config
+      nugetConfigPath: nuget.config
+      verbosityRestore: Normal
+    displayName: 'Restore packages'
+
+  # Coverity Build
+  - script: |
+      md $(COVERITY_INTERMEDIATE_DIRECTORY)
+      $(COVERITY_TOOL_HOME)\bin\cov-build --dir $(COVERITY_INTERMEDIATE_DIRECTORY) dotnet build --configuration Debug --no-restore
+    displayName: 'Coverity Build'
+
+  - script: |
+      df -h
+    displayName: 'Print Disk Space'
+
+  # Coverity Import
+  - script: |
+      $(COVERITY_TOOL_HOME)\bin\cov-import-scm --dir $(COVERITY_INTERMEDIATE_DIRECTORY) --scm git
+    displayName: 'Coverity Import'
+
+  - script: |
+      df -h
+    displayName: 'Print Disk Space'
+
+  # Coverity Analyze
+  - script: >
+      $(COVERITY_TOOL_HOME)\bin\cov-analyze --dir $(COVERITY_INTERMEDIATE_DIRECTORY) --strip-path $(Build.SourcesDirectory) 
+      --all 
+      --aggressiveness-level high
+      -en HARDCODED_CREDENTIALS 
+      -en UNENCRYPTED_SENSITIVE_DATA 
+      -en USER_POINTER 
+      -en WEAK_GUARD 
+      -en WEAK_PASSWORD_HASH 
+      --enable-audit-mode 
+      --webapp-security
+    displayName: 'Coverity Analyze'
+    continueOnError: true
+    condition: succeededOrFailed()
+  
+  - script: |
+      df -h
+    displayName: 'Print Disk Space'
+
+  # Copy log files
+  - script: |
+      md $(COVERITY_LOGS_DIRECTORY)
+      copy $(COVERITY_INTERMEDIATE_DIRECTORY)\build-log.txt $(COVERITY_LOGS_DIRECTORY)
+      copy $(COVERITY_INTERMEDIATE_DIRECTORY)\output\analysis-log.txt $(COVERITY_LOGS_DIRECTORY)
+    displayName: 'Copy log files to $(COVERITY_LOGS_DIRECTORY)'
+
+  # Publish artifact with logs
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish logs artifact'
+    inputs:
+      pathtoPublish: '$(COVERITY_LOGS_DIRECTORY)'
+      artifactName: 'coverity-logs'
+
+  # Coverity Commit defects
+  - script: >
+      $(COVERITY_TOOL_HOME)\bin\cov-commit-defects --dir $(COVERITY_INTERMEDIATE_DIRECTORY) 
+      --url $(COVERITY_URL) 
+      --user $(userName) 
+      --password $(authenticationKey) 
+      --stream "$(COVERITY_STREAM_NAME)" 
+      --version "$(Build.SourceBranchName)$(Build.SourceVersion)"
+    displayName: 'Coverity Commit defects'
