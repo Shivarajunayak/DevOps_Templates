@@ -1,0 +1,39 @@
+ pipeline{
+    agent any     
+    stages{         
+        stage('check out'){             
+            steps{                 
+                git branch: 'main', credentialsId: '150699ff-a0b0-4bf8-bbf1-03bfe7a6f81d', url: 'https://github.com/Vyshakkote1/sampletest.git'             
+                }         
+            }         
+        stage('sonar scan'){             
+            steps{                 
+                withSonarQubeEnv('demo1') {                     
+                    sh "mvn clean verify sonar:sonar -Dsonar.projectKey=demo1"                 
+                    }            
+                }         
+            }
+        stage('create binaries'){             
+            steps{                 
+                sh "mvn clean install"
+                }         
+            }
+        stage('create docker image'){
+            steps{  
+                script{
+                sh "docker build -t tomcat_deploy:${BUILD_NUMBER} ."
+                sh "docker tag tomcat_deploy:${BUILD_NUMBER} vyshak26/demo:${BUILD_NUMBER}"                 
+                sh "docker login -u vyshak26 -p Vyshak26@"
+                sh "docker push vyshak26/demo:${BUILD_NUMBER}"  
+                }
+            }
+        }    
+        stage('deploy container'){             
+            steps{                 
+                sh "docker pull vyshak26/demo:${BUILD_NUMBER}"                 
+                sh "docker rm -f tomcatwebapp"                 
+                sh "docker run -itd --name tomcatwebapp -p 8090:8080 vyshak26/demo:${BUILD_NUMBER}"             
+            }         
+        }  
+    } 
+ }    
