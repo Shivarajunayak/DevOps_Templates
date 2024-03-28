@@ -1,0 +1,113 @@
+name: Build Embedded Application new 
+on:
+  push:
+    branches: [ "embedded_ci" ]
+jobs:
+  setup:
+    runs-on: windows-latest
+    name: Setup 
+    steps:       
+      - name: Checkout
+        uses: actions/checkout@v4 
+
+      - name: Checkout
+        uses: actions/checkout@v4  
+        with:        
+            repository: etn-ccis/edge-rtos-babelfish-v3
+            path: edge-rtos-babelfish-v3
+            ref: f37039b3ad84008892185725935fd9668bc9074d      # Here we can use the specific commit ID to checkout the latest code
+            token: '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'
+    
+      - name: Install required S/Ws
+        shell: pwsh
+        run: |        
+          cd D:\a
+          ls
+          df -h 
+          du -sch *
+          Set-ExecutionPolicy AllSigned 
+          Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')) 
+          choco --version
+          choco feature enable -n allowGlobalConfirmation 
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' 
+          choco install ninja gperf python dtc-msys2 wget 7zip unzip 
+          md zephyrproject 
+          pip3 install virtualenv 
+          python -m venv zephyrproject\zephyr-v3.2.0\.venv 
+          Set-ExecutionPolicy Bypass -Scope Process –Force 
+          Invoke-Item "D:\a\zephyrproject\zephyr-v3.2.0\.venv\Scripts\activate.bat"
+          pip3 install west 
+          west init --mr v3.2.0 zephyrproject\zephyr-v3.2.0 
+          cd zephyrproject\zephyr-v3.2.0
+          Get-Location
+          powershell "(Get-Service actions.runner.*).name"
+          ls
+          west update 
+          west zephyr-export 
+          pip install -r \zephyr\scripts\requirements.txt         
+          pip3 install pyelftools
+          wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.15.2/zephyr-sdk-0.15.2_windows-x86_64.zip 
+          7z x zephyr-sdk-0.15.2_windows-x86_64.zip 
+          Remove-Item -Path "D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2_windows-x86_64.zip"
+          ls
+          df -h
+          du -sch *
+          
+          cd zephyr-sdk-0.15.2
+          ls
+          wget https://developer.arm.com/-/media/Files/downloads/gnu-rm/10.3-2021.10/gcc-arm-none-eabi-10.3-2021.10-win32.zip
+          7z x gcc-arm-none-eabi-10.3-2021.10-win32.zip
+          ls
+          Remove-Item -Path "D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2\gcc-arm-none-eabi-10.3-2021.10-win32.zip"
+          ls
+          df -h
+          du -sch *
+          
+          cd gcc-arm-none-eabi-10.3-2021.10
+          ls
+          [System.Environment]::SetEnvironmentVariable('ZEPHYR_TOOLCHAIN_VARIANT','gnuarmemb')
+          [System.Environment]::SetEnvironmentVariable('GNUARMEMB_TOOLCHAIN_PATH','D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2\gcc-arm-none-eabi-10.3-2021.10')
+          [System.Environment]::SetEnvironmentVariable('ZEPHYR_SDK_INSTALL_DIR','D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2')
+          [System.Environment]::SetEnvironmentVariable('ZEPHYR_BASE','D:\a\zephyrproject\zephyr-v3.2.0\zephyr')
+          Get-ChildItem Env:
+          
+          cd D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2
+          ls
+          
+          D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2\setup.cmd y y y      
+          cmake --version
+          
+          move-Item -Path D:\a\smart-filter-controller-embedded\smart-filter-controller-embedded\edge-rtos-babelfish-v3 -Destination D:\a\zephyrproject
+          copy-Item -Path "D:\a\smart-filter-controller-embedded\smart-filter-controller-embedded" -Destination "D:\a\zephyrproject" -Recurse
+
+          cd D:\a\zephyrproject
+          ls
+          
+          cd D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2
+          ls
+          Invoke-Item "D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2\setup.cmd"
+          
+          cd D:\a\zephyrproject\smart-filter-controller-embedded
+          ls
+          Set-Location -Path D:\a\zephyrproject\edge-rtos-babelfish-v3
+          & ./zephyr_setup_windows.bat -input 1 
+
+          Set-Location -Path D:\a\zephyrproject\smart-filter-controller-embedded
+          Invoke-Expression -Command "./cmd_build.bat"
+          
+          cd D:\a\zephyrproject\zephyr-v3.2.0
+          ls
+          
+          cd D:\a\zephyrproject\zephyr-v3.2.0\blr_modules
+          ls
+          
+          cd D:\a\zephyrproject\smart-filter-controller-embedded
+          ls
+          
+          cd D:\a\zephyrproject\smart-filter-controller-embedded\build
+          ls
+          
+          cd D:\a\zephyrproject\smart-filter-controller-embedded\build\zephyr
+          ls
+
+          df -h
