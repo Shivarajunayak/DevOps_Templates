@@ -1,0 +1,128 @@
+pool:
+  name: Azure Pipelines
+  demands: xcode
+
+#Your build pipeline references an undefined variable named ‘Value’. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab. See https://go.microsoft.com/fwlink/?linkid=865972
+#Your build pipeline references an undefined variable named ‘P12Password’. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab. See https://go.microsoft.com/fwlink/?linkid=865972
+variables:
+  xcWorkspacePath: 'myforce.xcworkspace'
+  scheme: 'myforce'
+
+steps:
+- powershell: |
+   $add = "$(System.DefaultWorkingDirectory)/Users/runner/work/1/s/myforce/Info.plist"
+   if (Test-Path $add) {
+       $ht = @{}
+       $ErrorActionPreference = 'SilentlyContinue'
+   
+       # File content intake
+       $ap = Get-Content $add
+       $ap = $ap -replace '<true/>', '<string>True</string>'
+       $ap = $ap -replace '<false/>', '<string>False</string>'
+       [xml]$ap1 = $ap  # Conversion of the XML content to an XML object
+   
+       $nodes = $ap1.SelectNodes("/plist/dict")
+       $left = $nodes | ConvertTo-Csv -NoTypeInformation | Select-Object -First 1
+       $left1 = $left.Replace('"', '').Split(",")
+       $left2 = $left1 | Where-Object { $_ -notmatch "key" }
+   
+       $keyvar = 0
+       foreach ($i in $left2) {
+           for ($j = 0; $j -lt $ap.Count; $j++) {
+               if ($ap[$j].Contains($i)) {
+                   $kv = "key$keyvar"
+                   $ap[$j - 1] = $ap[$j - 1] -replace 'key', $kv
+               }
+           }
+           $keyvar++
+       }
+       $ap1 = $ap
+   
+       $fileft = $ap1.SelectNodes("//plist/dict") | ConvertTo-Csv -NoTypeInformation | Select-Object -First 1
+       $fileft1 = $fileft.Replace('"', '').Split(",")
+       $fileft2 = $fileft1 | Select-String -AllMatches 'key'
+   
+       $max = Foreach ($i in $left2) {
+           $ap1.plist.dict.$i.Count
+       }
+       Write-Host "Number of keys" $max
+   
+       $maxi = $max | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
+   
+       for ($i = 0; $i -lt $keyvar; $i++) {
+           $dt = $left2[$i]
+           $ky = $fileft2[$i]
+   
+           for ($j = 0; $j -le $maxi; $j++) {
+               if ($dt -match "string") {
+                   $ht.Add($ap1.plist.dict.$ky[$j], $ap1.plist.dict.$dt[$j])
+               } else {
+                   $ht.Add($ap1.plist.dict.$ky[$j], $ap1.plist.dict.$dt[$j].ChildNodes)
+               }
+           }
+       }
+       $ErrorActionPreference = 'Continue'
+   
+       $value = $ht
+   } else {
+       Write-Host "The file does not exist"
+   }
+   
+   Write-Host "Value" $value
+   $name = $value.CONFIGURATION
+   Write-Host "Value" $name
+   $val = $value.CurrentBundleversion
+   Write-Host "CurrentBundleversion" $val
+   Write-Host "cfbundleversion" $val
+   Write-Host "##vso[task.setvariable variable=Value;]$val"
+  displayName: 'CF_BundleVersion_value'
+  enabled: false
+
+- task: vs-publisher-473885.motz-mobile-buildtasks.ios-bundle-version.ios-bundle-version@1
+  displayName: 'Bump iOS Versions in /Users/runner/work/1/s/myforce/Info.plist'
+  inputs:
+    sourcePath: /Users/runner/work/1/s/myforce/Info.plist
+    versionCode: '$(Value)'
+  enabled: false
+
+- task: CocoaPods@0
+  displayName: 'pod install'
+  enabled: false
+
+- task: InstallAppleCertificate@2
+  displayName: 'Install an Apple certificate'
+  inputs:
+    certSecureFile: '29130779-26d2-477c-bddb-cda59580ae5b'
+    certPwd: '$(P12Password)'
+    setUpPartitionIdACLForPrivateKey: false
+
+- task: InstallAppleProvisioningProfile@1
+  displayName: 'Install an Apple provisioning profile'
+  inputs:
+    provProfileSecureFile: '757a10c0-168b-446e-ba1d-648d1a07aae7'
+    removeProfile: false
+
+- task: Xcode@5
+  displayName: 'Xcode build'
+  inputs:
+    xcWorkspacePath: '$(Parameters.xcWorkspacePath)'
+    scheme: '$(Parameters.scheme)'
+    xcodeVersion: specifyPath
+    xcodeDeveloperDir: '/Applications/Xcode_15.1.app'
+    packageApp: true
+    signingOption: manual
+    provisioningProfileUuid: '5d9a4a9b-0e1c-48e1-9796-ecd7e89f59bd'
+    provisioningProfileName: 'Myforcepipeline profile'
+
+- task: CopyFiles@2
+  displayName: 'Copy Files to: $(build.artifactstagingdirectory)'
+  inputs:
+    SourceFolder: '$(system.defaultworkingdirectory)'
+    Contents: '**/*.ipa'
+    TargetFolder: '$(build.artifactstagingdirectory)'
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Artifact: $(build.repository.name)'
+  inputs:
+    PathtoPublish: '$(build.artifactstagingdirectory)'
+    ArtifactName: '$(build.repository.name)'
