@@ -1,0 +1,120 @@
+name: Embedded Application Coverity scan
+
+on:
+  push:
+    branches: [ "dev" ]
+
+env:
+  COVERITY_STREAM_NAME: 'Smart_Filter_Controller_CI-CD'
+  COVERITY_TOOL_HOME: 'D:\a\zephyrproject\smart-filter-controller-embedded\cov-analysis'
+  COVERITY_DOWNLOAD_URL: 'https://coverity.eaton.com/downloadFile.htm'
+  COVERITY_ANALYSIS_TOOL: 'cov-analysis-win64-2023.12.0.exe'
+  COVERITY_INTERMEDIATE_DIRECTORY: ${{ github.workspace }}\CoverityIntermediate
+  COVERITY_LOGS_DIRECTORY: ${{ github.workspace }}\CoverityLogs
+  SETUP_PATH: 'D:\a\zephyrproject\smart-filter-controller-embedded\coverityTemp'
+  COVERITY_AUTHKEY: ${{ secrets.SF_COVERITY_KEY }}
+  COVERITY_USER: ${{ secrets.COVERITY_USER }}
+
+jobs:
+  Coverity_Scan:
+    runs-on: windows-latest
+    steps:       
+      - name: Checkout
+        uses: actions/checkout@v4 
+
+      - name: Checkout
+        uses: actions/checkout@v4  
+        with:        
+            repository: etn-ccis/edge-rtos-babelfish-v3
+            path: edge-rtos-babelfish-v3
+            ref: f37039b3ad84008892185725935fd9668bc9074d
+            token: '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'
+      
+      - name: Install required S/Ws
+        shell: pwsh
+        run: |        
+            cd D:\a
+            ls
+            df -h 
+            du -sch *
+            Set-ExecutionPolicy AllSigned 
+            Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')) 
+            choco --version
+            choco feature enable -n allowGlobalConfirmation 
+            choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' 
+            choco install ninja gperf python dtc-msys2 wget 7zip unzip 
+            choco install curl
+            md zephyrproject 
+            pip3 install virtualenv 
+            python -m venv zephyrproject\zephyr-v3.2.0\.venv 
+            Set-ExecutionPolicy Bypass -Scope Process –Force 
+            Invoke-Item "D:\a\zephyrproject\zephyr-v3.2.0\.venv\Scripts\activate.bat"
+            pip3 install west 
+            west init --mr v3.2.0 zephyrproject\zephyr-v3.2.0 
+            cd zephyrproject\zephyr-v3.2.0
+            Get-Location
+            powershell "(Get-Service actions.runner.*).name"
+            ls
+            west update 
+            west zephyr-export 
+            pip install -r \zephyr\scripts\requirements.txt         
+            pip3 install pyelftools
+            wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.15.2/zephyr-sdk-0.15.2_windows-x86_64.zip > $null 2>&1
+            7z x zephyr-sdk-0.15.2_windows-x86_64.zip 
+            Remove-Item -Path "D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2_windows-x86_64.zip"
+            
+            cd zephyr-sdk-0.15.2
+            ls
+            wget https://developer.arm.com/-/media/Files/downloads/gnu-rm/10.3-2021.10/gcc-arm-none-eabi-10.3-2021.10-win32.zip > $null 2>&1
+            7z x gcc-arm-none-eabi-10.3-2021.10-win32.zip
+            ls
+            Remove-Item -Path "D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2\gcc-arm-none-eabi-10.3-2021.10-win32.zip"
+            
+            cd gcc-arm-none-eabi-10.3-2021.10
+            ls
+            [System.Environment]::SetEnvironmentVariable('ZEPHYR_TOOLCHAIN_VARIANT','gnuarmemb')
+            [System.Environment]::SetEnvironmentVariable('GNUARMEMB_TOOLCHAIN_PATH','D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2\gcc-arm-none-eabi-10.3-2021.10')
+            [System.Environment]::SetEnvironmentVariable('ZEPHYR_SDK_INSTALL_DIR','D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2')
+            [System.Environment]::SetEnvironmentVariable('ZEPHYR_BASE','D:\a\zephyrproject\zephyr-v3.2.0\zephyr')
+            Get-ChildItem Env:
+            
+            cd D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2
+            ls
+            
+            D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2\setup.cmd y y y      
+            cmake --version
+            
+            move-Item -Path D:\a\smart-filter-controller-embedded\smart-filter-controller-embedded\edge-rtos-babelfish-v3 -Destination D:\a\zephyrproject
+            copy-Item -Path "D:\a\smart-filter-controller-embedded\smart-filter-controller-embedded" -Destination "D:\a\zephyrproject" -Recurse
+            cd D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2
+            ls
+            Invoke-Item "D:\a\zephyrproject\zephyr-v3.2.0\zephyr-sdk-0.15.2\setup.cmd"
+            
+            cd D:\a\zephyrproject\smart-filter-controller-embedded
+            ls
+            Set-Location -Path D:\a\zephyrproject\edge-rtos-babelfish-v3
+            & ./zephyr_setup_windows.bat -input 1 
+            Write-Host "Download Coverity Build Tool"
+            New-Item -ItemType Directory -Path D:\a\zephyrproject\smart-filter-controller-embedded\cov-analysis | Out-Null
+            New-Item -ItemType Directory -Path D:\a\zephyrproject\smart-filter-controller-embedded\coverityTemp | Out-Null
+            #Remove-Item -Path ${{ env.SETUP_PATH }}\${{ env.COVERITY_ANALYSIS_TOOL }}
+            # Download Coverity Analysis Tool and license file
+            curl -L --user ${{ env.COVERITY_USER }}:${{ env.COVERITY_AUTHKEY }} ${{ env.COVERITY_DOWNLOAD_URL }} --data-urlencode "fn=${{ env.COVERITY_ANALYSIS_TOOL }}" -o ${{ env.SETUP_PATH }}\${{ env.COVERITY_ANALYSIS_TOOL }}
+            curl -L --user ${{ env.COVERITY_USER }}:${{ env.COVERITY_AUTHKEY }} ${{ env.COVERITY_DOWNLOAD_URL }} --data-urlencode "fn=license.dat" -o ${{ env.SETUP_PATH }}\license.dat
+            Get-Location
+            
+            # Install Coverity
+            Write-Host "Starting Coverity Client installation."
+            Start-Process -FilePath "${{ env.SETUP_PATH }}\${{ env.COVERITY_ANALYSIS_TOOL }}" -ArgumentList "-q", "--installation.dir=${{ env.COVERITY_TOOL_HOME }}", "--license.region=0", "--license.agreement=agree", "--license.type.choice=0", "--license.cov.path=${{ env.SETUP_PATH }}\license.dat" -Verb RunAs -Wait
+            Write-Host "Coverity Client installation done."
+            Get-Location
+            [System.Environment]::SetEnvironmentVariable('COVERITY_HOME','D:\a\zephyrproject\smart-filter-controller-embedded\cov-analysis\bin', 'Machine')
+            $env:Path += ";D:\a\zephyrproject\smart-filter-controller-embedded\cov-analysis\bin"
+            # Check if coverity command can be run
+            coverity --help
+            Set-Location -Path 'D:\a\zephyrproject\smart-filter-controller-embedded'
+            cov-configure --config coverity_config.xml --comptype gcc --compiler arm-none-eabi-gcc --template
+            cov-build --config coverity_config.xml --dir idir west build -p auto -b nucleo_h753zi -- -DCONFIG_BOOTLOADER_MCUBOOT=y -DCONFIG_X509_CERT_LOCAL_SIGNING=y -DCONF_FILE="prj_mcuboot.conf"
+            cov-analyze --config coverity_config.xml --dir idir --all --enable-exceptions --enable-virtual --enable-audit-mode --webapp-security --aggressiveness-level high --enable-callgraph-metrics --force -en SECURE_CODING -en HARDCODED_CREDENTIALS -en UNENCRYPTED_SENSITIVE_DATA -en USER_POINTER -en WEAK_GUARD -en WEAK_PASSWORD_HASH --enable-constraint-fpp --enable-jshint
+            cov-manage-emit --dir idir list > idir_all_emit.txt
+            cov-commit-defects --url "https://coverity.eaton.com/" --user ${{ env.COVERITY_USER }} --password ${{ env.COVERITY_AUTHKEY }} --stream "${{ env.COVERITY_STREAM_NAME }}" --target embedded --ssl --dir idir --config coverity_config.xml
