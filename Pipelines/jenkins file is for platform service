@@ -1,0 +1,93 @@
+
+// This jenkins file is for platform service
+ 
+pipeline {
+    agent any
+parameters {
+choice(
+name: 'BRANCH',
+choices: ['master', 'dev', 'preprod'],
+description: 'Select the branch to build'
+)
+// gitParameter branch: 'dev', branchFilter: '.*', defaultValue: '1.0.0', description: 'Select the tag to build the job', name: 'Tags', quickFilterEnabled: false, selectedValue: 'NONE', sortMode: 'NONE', tagFilter: '*', type: 'GitParameterDefinition'
+string(name: 'GIT_TAG', defaultValue: '1.0.0', description: 'Enter the Git tag to build')
+}
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: "${params.BRANCH}", credentialsId: 'git_cred', url: 'https://github.com/MSILDigital/mi-inbound-platform.git'
+            }
+        }
+ 
+        stage('Build') {
+            steps {
+                sh 'ls'
+                sh 'pwd'
+                sh 'npm install -g serverless'
+                sh 'cd api-service && rm -rf package-lock.json && npm install'
+                sh 'pwd'
+                sh 'cd socket-service && rm -rf package-lock.json && npm install'
+            }
+        }
+        stage('Sonarqube analysis') {
+            steps {
+// credentialsId: 'sonarqube_token', url: 'https://sonarqube.msildevopsportal.co.in'
+withSonarQubeEnv('sonarqube'){
+           sh 'pwd'
+                sh 'cd api-service && npm run test && npm run sonar'
+                sh 'pwd'
+                sh 'cd socket-service && npm run test && npm run sonar'
+}
+}
+}
+        stage("Quality Gate") {
+            steps {
+              timeout(time: 1, unit: 'HOURS') {
+                waitForQualityGate abortPipeline: true
+              }
+            }
+          }
+ 
+        stage('Deploy') {
+            steps {
+                withCredentials([[ 
+                             $class: 'AmazonWebServicesCredentialsBinding', 
+                             credentialsId: 'Reporting-Jenkins', 
+                             accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
+                             secretKeyVariable: 'AWS_SECRET_ACCESS_KEY' 
+                           ]]) {
+                                 sh 'pwd'
+sh 'cd api-service && ls -ltr && npm install serverless-deployment-bucket  && npm install serverless-delete-loggroups && npm install serverless-webpack && export SLS_DEBUG=true && serverless print --stage dev && serverless deploy --stage dev'
+                                 sh 'cd socket-service && ls -ltr && npm install serverless-deployment-bucket  && npm install serverless-delete-loggroups && npm install serverless-webpack && export SLS_DEBUG=true && serverless print --stage dev && serverless deploy --stage dev' 
+                                }
+            }
+ 
+        }
+}
+post {
+
+success {
+script {
+def gitLogs = sh(script: 'git log -4 --pretty=format:"%h %an %s"', returnStdout: true).trim()
+emailext (
+subject: "Build Success: ${currentBuild.fullDisplayName}",
+body: "Build ${currentBuild.fullDisplayName} succeeded. Here are the last 5 git logs:\n\n${gitLogs}.\n Console output is attached. \n Find the sonarqube analysis results at \n https://sonarqube.msildevopsportal.co.in/dashboard?id=inbound-socket-service",
+to: 'sinchana.j@happiestminds.com',
+attachmentsPattern: '**/*.log',
+)
+}
+}
+
+failure {
+script {
+def gitLogs = sh(script: 'git log -5 --pretty=format:"%h %an %s"', returnStdout: true).trim()
+emailext (
+subject: "Build Failure: ${currentBuild.fullDisplayName}",
+body: "Build ${currentBuild.fullDisplayName} failed. Here are the last 5 git logs:\n\n${gitLogs}. \n Console output attached. \n Find the sonarqube analysis results at https://sonarqube.msildevopsportal.co.in/dashboard?id=inbound-socket-service",
+to: 'sinchana.j@happiestminds.com',
+attachmentsPattern: '**/*.log',
+)
+}
+}
+}
+}
